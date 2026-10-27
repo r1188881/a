@@ -1,0 +1,8 @@
+[{
+  "modid": "mazesolver",
+  "name": "Maze Solver",
+  "description": "Finds and walks the shortest path through a maze.",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "authorList": ["You"]
+}]
