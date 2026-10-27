@@ -9,11 +9,24 @@ import net.minecraft.world.World;
 
 import java.util.*;
 
-/** A* over "standing positions" (feet block): flat moves, 1-block step-ups, drops up to 3. */
+/**
+ * A* over "standing positions" (feet block): flat moves, 1-block step-ups, drops up to 3.
+ * If the goal can't be reached (too far / chunks not loaded yet) it returns a PARTIAL route
+ * to the explored position that is closest to the goal.
+ */
 public final class PathFinder {
-    private static final int MAX_NODES = 40000;
-    private static final int MAX_RANGE = 128;
+    private static final int MAX_NODES = 250000;
+    private static final int MAX_RANGE = 512;
     private static final int MAX_DROP = 3;
+
+    public static final class Result {
+        public final List<BlockPos> path;
+        public final boolean found;    // true = real route to the goal (or already there)
+        public final boolean partial;  // true = only a route toward the goal
+        Result(List<BlockPos> path, boolean found, boolean partial) {
+            this.path = path; this.found = found; this.partial = partial;
+        }
+    }
 
     private static class Node {
         final BlockPos pos; final Node parent; final int g, f;
@@ -22,20 +35,29 @@ public final class PathFinder {
 
     private PathFinder() {}
 
-    public static List<BlockPos> find(World w, BlockPos start, BlockPos goal) {
+    public static Result find(World w, BlockPos start, BlockPos goal) {
+        if (isGoal(start, goal)) return new Result(new ArrayList<BlockPos>(), true, false);
+
         PriorityQueue<Node> open = new PriorityQueue<Node>(64, new Comparator<Node>() {
             public int compare(Node a, Node b) { return Integer.compare(a.f, b.f); }
         });
         Map<BlockPos, Integer> best = new HashMap<BlockPos, Integer>();
-        open.add(new Node(start, null, 0, heuristic(start, goal)));
+        Node startNode = new Node(start, null, 0, heuristic(start, goal));
+        open.add(startNode);
         best.put(start, 0);
+
+        Node closest = startNode;
+        int closestH = heuristic(start, goal);
         int expanded = 0;
 
         while (!open.isEmpty() && expanded++ < MAX_NODES) {
             Node cur = open.poll();
             Integer known = best.get(cur.pos);
             if (known != null && cur.g > known) continue;
-            if (isGoal(cur.pos, goal)) return reconstruct(cur);
+            if (isGoal(cur.pos, goal)) return new Result(reconstruct(cur), true, false);
+
+            int h = heuristic(cur.pos, goal);
+            if (h < closestH) { closestH = h; closest = cur; }
 
             for (BlockPos next : neighbors(w, cur.pos)) {
                 if (Math.abs(next.getX() - start.getX()) > MAX_RANGE
@@ -48,7 +70,9 @@ public final class PathFinder {
                 }
             }
         }
-        return new ArrayList<BlockPos>(); // no path
+
+        if (closest.parent == null) return new Result(new ArrayList<BlockPos>(), false, false);
+        return new Result(reconstruct(closest), false, true);
     }
 
     private static boolean isGoal(BlockPos p, BlockPos goal) {
@@ -64,7 +88,7 @@ public final class PathFinder {
     private static List<BlockPos> reconstruct(Node n) {
         LinkedList<BlockPos> out = new LinkedList<BlockPos>();
         for (; n.parent != null; n = n.parent) out.addFirst(n.pos);
-        return out;
+        return new ArrayList<BlockPos>(out);
     }
 
     private static List<BlockPos> neighbors(World w, BlockPos pos) {
